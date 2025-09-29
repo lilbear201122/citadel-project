@@ -1,33 +1,10 @@
-import React from 'react'
-
-export default function App() {
-  return (
-    <main style={{fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, sans-serif', padding: 24}}>
-      <h1>Vercel + React + TypeScript（修正版樣板）</h1>
-      <p>你現在可以把你的 .tsx 內容貼到 <code>src/App.tsx</code>，然後部署到 Vercel。</p>
-      <ul>
-        <li>Node 版本限制：<code>&gt;=18 &lt;22</code></li>
-        <li>Build 指令：<code>vite build</code></li>
-        <li>輸出目錄：<code>dist</code></li>
-      </ul>
-    </main>
-  )
-}
 import React, { useState } from "react";
-import { motion } from "framer-motion";
 
 /**
  * Elo Chip-Based Scoring | Demo (Version 1, fixed sizes)
- * Progression & field sizes: 256 (population) → 128 (Cup participants per run) ×3 → 32 (Regionals) → 12 (our region to Worlds; total field 48 incl. external regions)
- * Fees & payouts: Fee = current chips / z. Cup pays fixed y only to the top half; Regionals/Worlds pay fixed y to all participants.
- * Parameters (V1 defaults): z_cup=8, y_cup=50; z_reg=4, y_reg=100; z_world=3, y_world=400. Initial chips x0=100.
- * Performance model used in every event: performance = skill + noise, where noise is approximately normal (sum of three U[-0.5, 0.5]).
- *
- * New (S15 TPC format) simulation:
- * - TPC (Pro League) uses the 32 players from the most recent 32-player Regionals.
- * - 3× TPC rounds (32 players). Pros do NOT play Cups.
- * - 2× S15 Cups (128 players each) drawn from the remaining 224 non-pro players.
- * - S15 Regionals (48 players) = 32 pros + top 16 by chips among non-pros after the 2 Cups.
+ * Progression & field sizes: 256 (population) → 128 (Cup) ×3 → 32 (Regionals) → 12 (our region to Worlds; total 48)
+ * Fee = chips / z. Cup pays fixed y only to the top half; Regionals/Worlds pay fixed y to all participants.
+ * Defaults: x0=100, z_cup=8, y_cup=50; z_reg=4, y_reg=100; z_world=3, y_world=400; TPC: z_tpc=5, y_tpc=80.
  */
 
 const DEFAULT_PARAMS = Object.freeze({
@@ -38,11 +15,9 @@ const DEFAULT_PARAMS = Object.freeze({
   y_reg: 100,
   z_world: 3,
   y_world: 400,
-  // S15: TPC sits between Cup and Regionals (slightly lower than legacy Regionals)
-  z_tpc: 5,      // a bit higher than z_reg → smaller fees than Regionals
-  y_tpc: 80,     // between y_cup and y_reg
-  // Percentage decay applied to all players when pressing "Decay"
-  decay_pct: 10, // default 10%
+  z_tpc: 5,
+  y_tpc: 80,
+  decay_pct: 10,
 });
 
 const FIXED_SIZES = Object.freeze({
@@ -67,7 +42,6 @@ function normalLike() {
 }
 
 function choiceIndexes(n: number, k: number) {
-  // Sample k unique indexes from 0..n-1
   const a = Array.from({ length: n }, (_, i) => i);
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -93,7 +67,7 @@ function rankBy(values: number[]) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-// Monotone-by-pairs weight builder (keeps each halving-band total; enforces global non-increasing)
+// Weight builders (pairwise monotone; preserve band totals)
 // ────────────────────────────────────────────────────────────────────────────────
 function buildMonotoneByPairs(
   N: number,
@@ -104,83 +78,71 @@ function buildMonotoneByPairs(
   const w = new Array(N).fill(0) as number[];
   if (N >= 1) w[0] = top1;
   if (N >= 2) w[1] = top2;
-  let prevTail = N >= 2 ? w[1] : Infinity; // cap for next band's head per-person
+  let prevTail = N >= 2 ? w[1] : Infinity;
 
   for (const b of bands) {
     const s = Math.max(1, b.start);
     const e = Math.min(b.end, N);
     let m = e - s + 1;
     if (m <= 0) continue;
-    if (m % 2 !== 0) { // enforce even length inside a band (defensive; our bands are even)
-      m -= 1;
-    }
-    const p = Math.floor(m / 2); // number of pairs inside band
-    const S = b.total;           // band total mass (preserved)
+    if (m % 2 !== 0) m -= 1;
+    const p = Math.floor(m / 2);
+    const S = b.total;
     if (p <= 0) continue;
 
-    // Unconstrained head (per-person) if using proportional ramp T_k ∝ k
     const unconstrainedHeadPP = S / (p + 1);
-    const headPP = Math.min(prevTail, unconstrainedHeadPP); // enforce cross-band monotonicity
+    const headPP = Math.min(prevTail, unconstrainedHeadPP);
     const headPair = headPP * 2;
 
     if (p === 1) {
-      // Single pair in this band → split the whole band equally
       const per = S / 2;
-      const r1 = e - 1; // better rank
-      const r2 = e;     // worse rank
+      const r1 = e - 1;
+      const r2 = e;
       w[r1 - 1] = per;
       w[r2 - 1] = per;
-      prevTail = per;   // tail = rank e
+      prevTail = per;
       continue;
     }
 
-    // Solve linear ramp of pair totals: T_k = A + B*k (k=1..p), with
-    //   (1) Sum_k T_k = S
-    //   (2) T_p = headPair
     const denom = (p * (1 - p)) / 2; // negative
-    const B = (S - p * headPair) / denom; // ≥ 0 when headPP ≤ unconstrained
+    const B = (S - p * headPair) / denom;
     const A = headPair - B * p;
 
-    // If numeric issues, fall back to uniform within the band
     const safeA = A < -1e-12 ? 0 : A;
     const safeB = B < -1e-12 ? 0 : B;
 
     for (let k = 1; k <= p; k++) {
       const T_k = safeA + safeB * k;
       const per = T_k / 2;
-      const r1 = e - (k - 1) * 2 - 1; // better rank in the pair
-      const r2 = r1 + 1;              // worse rank in the pair
+      const r1 = e - (k - 1) * 2 - 1;
+      const r2 = r1 + 1;
       w[r1 - 1] = per;
       w[r2 - 1] = per;
     }
-    prevTail = w[e - 1]; // tail per-person (rank e)
+    prevTail = w[e - 1];
   }
   return w;
 }
 
-// CUP: keep top two fixed, then halving bands with preserved totals and pair-wise ramp
 function weightsCup(N: number) {
   return buildMonotoneByPairs(N, 0.15, 0.09, [
-    { start: 3,  end: 4,   total: 0.12 }, // 3–4: total 0.12
-    { start: 5,  end: 8,   total: 0.16 }, // 5–8:  0.16
-    { start: 9,  end: 16,  total: 0.16 }, // 9–16: 0.16
-    { start: 17, end: 32,  total: 0.16 }, // 17–32:0.16
-    { start: 33, end: 64,  total: 0.16 }, // 33–64:0.16 (65+ remain 0)
+    { start: 3,  end: 4,   total: 0.12 },
+    { start: 5,  end: 8,   total: 0.16 },
+    { start: 9,  end: 16,  total: 0.16 },
+    { start: 17, end: 32,  total: 0.16 },
+    { start: 33, end: 64,  total: 0.16 },
   ]);
 }
 
-// REGIONALS: 32 players
 function weightsReg(N: number) {
   return buildMonotoneByPairs(N, 0.20, 0.12, [
-    { start: 3,  end: 4,   total: 0.16 }, // 3–4:  0.16
-    { start: 5,  end: 8,   total: 0.20 }, // 5–8:  0.20
-    { start: 9,  end: 16,  total: 0.32 }, // 9–16: 0.32
+    { start: 3,  end: 4,   total: 0.16 },
+    { start: 5,  end: 8,   total: 0.20 },
+    { start: 9,  end: 16,  total: 0.32 },
   ]);
 }
 
-// WORLDS: 48 players
 function weightsWorld(N: number) {
-  // Excel BandTotals → Worlds (48): top1=0.16, top2=0.10, 3–4=0.14, 5–8=0.20, 9–16=0.24, 17–32=0.16, 33–48=0
   return buildMonotoneByPairs(N, 0.16, 0.10, [
     { start: 3,  end: 4,   total: 0.14 },
     { start: 5,  end: 8,   total: 0.20 },
@@ -189,10 +151,7 @@ function weightsWorld(N: number) {
   ]);
 }
 
-// S15 Regionals (48 players) — using the same band structure as Worlds (48)
 function weightsReg48(N: number) {
-  // S15 Regionals (48) — Excel BandTotals (S15 Regional 48):
-  // top1=0.15, top2=0.09, 3–4=0.14, 5–8=0.20, 9–16=0.25, 17–32=0.17, 33–48=0
   return buildMonotoneByPairs(N, 0.15, 0.09, [
     { start: 3,  end: 4,   total: 0.14 },
     { start: 5,  end: 8,   total: 0.20 },
@@ -201,9 +160,7 @@ function weightsReg48(N: number) {
   ]);
 }
 
-// TPC weights (32 players) — close to legacy Regionals, slightly lower tier, keep same weight curve
 function weightsTPC(N: number) {
-  // S15 TPC (32) — Excel BandTotals: top1=0.18, top2=0.11, 3–4=0.16, 5–8=0.19, 9–16=0.36, 17–32=0
   return buildMonotoneByPairs(N, 0.18, 0.11, [
     { start: 3,  end: 4,   total: 0.16 },
     { start: 5,  end: 8,   total: 0.19 },
@@ -216,7 +173,7 @@ function median(arr: number[]){ const a=[...arr].sort((x,y)=>x-y); const m=Math.
 function clampInt(v: number, min: number, max: number) { return Math.max(min, Math.min(max, Math.round((v as any)||0))); }
 function delay(ms: number){ return new Promise(res=>setTimeout(res, ms)); }
 
-// Single-event settlement
+// Settlement for a single event
 function tierRun({ playersIdx, players, z, y, weights, giveYToTopHalf }:{
   playersIdx: number[];
   players: { id: number; skill: number; chips: number }[];
@@ -252,39 +209,37 @@ function tierRun({ playersIdx, players, z, y, weights, giveYToTopHalf }:{
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-export default function EloChipsDemo() {
+// Main demo component (named export)
+// ────────────────────────────────────────────────────────────────────────────────
+function EloChipsDemo() {
   const [sizes] = useState({ ...FIXED_SIZES });
   const [params, setParams] = useState({ ...DEFAULT_PARAMS });
   const [players, setPlayers] = useState(() => createPlayers(FIXED_SIZES.population, DEFAULT_PARAMS.x0));
   const [stage, setStage] = useState("idle");
   const [history, setHistory] = useState<any[]>([]);
 
-  // Reset all state
   const reset = () => {
     setPlayers(createPlayers(sizes.population, params.x0));
     setStage("idle");
     setHistory([]);
   };
 
-  // Decay all players' chips by (1 - decay_pct/100)
   const decayAll = () => {
     const pct = Math.max(0, Math.min(100, Number(params.decay_pct) || 0));
     const factor = 1 - pct / 100;
-    setPlayers(prev => prev.map(p => ({ ...p, chips: Math.max(0, p.chips * factor) }))));
+    setPlayers(prev => prev.map(p => ({ ...p, chips: Math.max(0, p.chips * factor) })));
     setStage("decay");
     setHistory(h => [...h, { type: "decay", factor, pct }]);
   };
 
-  // One Cup run (128 participants, any population)
   const runCup = (cupIndex: number) => {
     const n = sizes.cupSlots;
     const idxs = choiceIndexes(players.length, n);
     const w = weightsCup(n);
-    const giveYToTopHalf = true; // Cup: y paid only to top half
+    const giveYToTopHalf = true;
     const next = players.map((p) => ({ ...p }));
     const res = tierRun({ playersIdx: idxs, players: next, z: params.z_cup, y: params.y_cup, weights: w, giveYToTopHalf });
 
-    // Full details (sorted by rank)
     const rows = idxs.map((pi, j) => ({
       name: `P${pi+1}`,
       playerId: pi,
@@ -302,14 +257,12 @@ export default function EloChipsDemo() {
     setHistory((h) => [...h, { type: "cup", cupIndex, idxs, rows, ...res }]);
   };
 
-  // Cup phase: run three Cup rounds in sequence
   const runCupsPhase = async () => {
     runCup(1); await delay(300);
     runCup(2); await delay(300);
     runCup(3);
   };
 
-  // Take top k by chips (global)
   const topByChips = (k: number) => (
     players.map((p, i) => ({ i, chips: p.chips }))
       .sort((a, b) => b.chips - a.chips)
@@ -317,14 +270,12 @@ export default function EloChipsDemo() {
       .map((x) => x.i)
   );
 
-  // Helper: get last Regionals (32) indices as pros; fallback to current top-32 if not found
   const getProIdxsFromLastRegional32 = () => {
     const lastReg32 = [...history].reverse().find((e) => e.type === "regional" && e.idxs?.length === 32);
     if (lastReg32) return [...(lastReg32 as any).idxs];
     return topByChips(sizes.reg);
   };
 
-  // TPC round (32 players = previous Regionals' 32)
   const runTPC = (tpcRound: number) => {
     const proIdxs = getProIdxsFromLastRegional32();
     const w = weightsTPC(proIdxs.length);
@@ -354,11 +305,10 @@ export default function EloChipsDemo() {
     runTPC(3);
   };
 
-  // S15 Cups (2×, 128 players each) — EXCLUDING pros
   const runS15CupsPhase = async () => {
     const proIdxs = getProIdxsFromLastRegional32();
     const proSet = new Set(proIdxs);
-    const nonProIdxs = players.map((_, i) => i).filter(i => !proSet.has(i)); // 224
+    const nonProIdxs = players.map((_, i) => i).filter(i => !proSet.has(i));
     const w = weightsCup(128);
     const giveYToTopHalf = true;
 
@@ -386,7 +336,6 @@ export default function EloChipsDemo() {
     runOne(2);
   };
 
-  // Regionals (32 players) — legacy flow
   const runRegional = () => {
     const idxs = topByChips(sizes.reg);
     const w = weightsReg(idxs.length);
@@ -410,7 +359,6 @@ export default function EloChipsDemo() {
     setHistory((h) => [...h, { type: "regional", idxs, rows, ...res }]);
   };
 
-  // Worlds (our 12 + fill with external regions to 48)
   const runWorlds = () => {
     const lastReg = [...history].reverse().find((e) => e.type === "regional");
     if (!lastReg) return;
@@ -474,19 +422,17 @@ export default function EloChipsDemo() {
     setHistory((h) => [...h, { type: "worlds", ourLocal, allIdxs, order: wOrder, ranks: wRanks, deltas, pool, rows }]);
   };
 
-  // S15 Regionals (48) = 32 pros + top-16 non-pros after S15 Cups
   const runS15Regional48 = () => {
     const proIdxs = getProIdxsFromLastRegional32();
     const proSet = new Set(proIdxs);
     const nonProIdxs = players.map((_, i) => i).filter(i => !proSet.has(i));
-    // Pick top-16 by chips among NON-PRO population (after whatever Cups have run)
     const nonProTop16 = nonProIdxs
       .map(i => ({ i, chips: players[i].chips }))
       .sort((a,b)=>b.chips - a.chips)
       .slice(0, 16)
       .map(x => x.i);
 
-    const idxs = [...proIdxs, ...nonProTop16]; // 48 total
+    const idxs = [...proIdxs, ...nonProTop16]; // 48
     const w = weightsReg48(idxs.length);
     const next = players.map((p) => ({ ...p }));
     const res = tierRun({ playersIdx: idxs, players: next, z: params.z_reg, y: params.y_reg, weights: w, giveYToTopHalf: false });
@@ -508,7 +454,6 @@ export default function EloChipsDemo() {
     setHistory(h => [...h, { type: "s15_regional", proIdxs, cupTop16: nonProTop16, idxs, rows, ...res }]);
   };
 
-  // One-click S15 flow: 3×TPC → 2×Cups → S15 Regionals (48)
   const runS15Auto = async () => {
     await runTPCPhase();
     await delay(400);
@@ -527,6 +472,7 @@ export default function EloChipsDemo() {
     runWorlds();
   };
 
+  // ——— UI ———
   return (
     <div className="w-full min-h-screen bg-slate-950 text-slate-100 px-6 py-8">
       <div className="max-w-6xl mx-auto">
@@ -548,7 +494,6 @@ export default function EloChipsDemo() {
           runRegional={runRegional}
           runWorlds={runWorlds}
           decayAll={decayAll}
-          // S15
           runTPCPhase={runTPCPhase}
           runS15CupsPhase={runS15CupsPhase}
           runS15Regional48={runS15Regional48}
@@ -561,7 +506,6 @@ export default function EloChipsDemo() {
           <NotesPanel params={params} sizes={sizes} />
         </div>
 
-        {/* Order: Matrix first, then Timeline */}
         <ChangesMatrix history={history} playersState={players} />
         <Timeline history={history} />
         <TestsPanel />
@@ -599,20 +543,16 @@ function Controls({ params, setParams, sizes, reset, autoPlay, runCupsPhase, run
         <NumberField label="y_reg (all players)" value={params.y_reg} onChange={(v)=>setParams((p:any)=>({ ...p, y_reg: clampInt(v,0,3000) }))} step={10} />
         <NumberField label="z_world" value={params.z_world} onChange={(v)=>setParams((p:any)=>({ ...p, z_world: clampInt(v,2,20) }))} step={1} />
         <NumberField label="y_world (all players)" value={params.y_world} onChange={(v)=>setParams((p:any)=>({ ...p, y_world: clampInt(v,0,10000) }))} step={50} />
-        {/* S15 TPC params */}
         <NumberField label="z_tpc" value={params.z_tpc} onChange={(v)=>setParams((p:any)=>({ ...p, z_tpc: clampInt(v,2,20) }))} step={1} />
         <NumberField label="y_tpc (all players)" value={params.y_tpc} onChange={(v)=>setParams((p:any)=>({ ...p, y_tpc: clampInt(v,0,3000) }))} step={10} />
-        {/* Decay percentage input */}
         <NumberField label="decay %" value={params.decay_pct} onChange={(v)=>setParams((p:any)=>({ ...p, decay_pct: clampInt(v,0,100) }))} step={1} />
       </div>
 
-      {/* Legacy flow controls */}
       <div className="flex flex-wrap gap-2 pt-2">
         <button className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700" onClick={reset}>Reset</button>
         <button className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500" onClick={runCupsPhase}>Cup</button>
         <button className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500" onClick={runRegional}>Regionals</button>
         <button className="px-3 py-2 rounded-xl bg-yellow-600 hover:bg-yellow-500" onClick={runWorlds}>Worlds</button>
-        {/* Decay button */}
         <button className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500" onClick={decayAll}>Decay</button>
         <button
           className="px-3 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500"
@@ -627,7 +567,6 @@ function Controls({ params, setParams, sizes, reset, autoPlay, runCupsPhase, run
         </button>
       </div>
 
-      {/* S15 TPC-format controls */}
       <div className="flex flex-wrap gap-2 pt-3 border-t border-slate-800 mt-2">
         <div className="text-xs uppercase tracking-wide text-slate-400 mr-2 pt-2">S15 (TPC format)</div>
         <button className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500" onClick={runTPCPhase}>TPC ×3</button>
@@ -656,14 +595,13 @@ function PlayersPanel({ title, players, highlightCount }:{ title: string; player
       <h3 className="font-semibold mb-3">{title}</h3>
       <div className="grid grid-cols-8 gap-2">
         {sorted.map((p, idx) => (
-          <motion.div
+          <div
             key={p.id}
-            layout
             className={`p-2 rounded-xl text-center border text-xs select-none ${idx<highlightCount?"border-emerald-500/60 bg-emerald-500/10":"border-slate-700 bg-slate-800/60"}`}
           >
             <div className="font-mono">P{p.id+1}</div>
             <div className="opacity-80">{format2(p.chips)}</div>
-          </motion.div>
+          </div>
         ))}
       </div>
       <p className="text-xs mt-2 text-slate-400">
@@ -685,12 +623,13 @@ function PoolsPanel({ history, params }:{ history: any[]; params: any; }) {
     last?.type === "s15_regional" ? "S15 Regionals (48)" :
     "Not started";
   const pool = last?.pool ?? 0;
+  const pct = Math.min(100, (Math.sqrt(pool) / 10) * 100);
   return (
     <div className="bg-slate-900/60 rounded-2xl p-4 border border-slate-800">
       <h3 className="font-semibold mb-3">Latest Prize Pool & Fixed Rewards</h3>
       <div className="text-sm mb-2">Stage: <span className="font-semibold">{label}</span></div>
       <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden mb-2">
-        <motion.div className="h-full bg-indigo-500" initial={{width:0}} animate={{width: Math.min(100, Math.sqrt(pool)/10*100)+"%"}} transition={{type:"spring"}} />
+        <div className="h-full bg-indigo-500" style={{ width: `${pct}%` }} />
       </div>
       <div className="text-xs text-slate-300 space-y-1">
         <div>Pool (from fees): <span className="font-mono">{format2(pool)}</span></div>
@@ -723,7 +662,7 @@ function NotesPanel({ params, sizes }:{ params: any; sizes: any; }) {
 }
 
 function Timeline({ history }:{ history: any[]; }) {
-  const [collapsed, setCollapsed] = useState<{[k: number]: boolean}>({}); // key: event index → true=show only top 16
+  const [collapsed, setCollapsed] = useState<{[k: number]: boolean}>({});
   return (
     <div className="mt-8 bg-slate-900/60 rounded-2xl p-4 border border-slate-800">
       <h3 className="font-semibold mb-3">Event Timeline</h3>
@@ -741,7 +680,7 @@ function Timeline({ history }:{ history: any[]; }) {
           const showTop16 = !!collapsed[idx];
           const viewRows = showTop16 ? rows.slice(0,16) : rows;
           return (
-            <motion.div key={idx} layout className="p-3 rounded-xl bg-slate-800/60 border border-slate-700">
+            <div key={idx} className="p-3 rounded-xl bg-slate-800/60 border border-slate-700">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold">{label}</div>
                 <div className="flex items-center gap-2">
@@ -789,7 +728,7 @@ function Timeline({ history }:{ history: any[]; }) {
                   </div>
                 </div>
               )}
-            </motion.div>
+            </div>
           );
         })}
       </div>
@@ -821,7 +760,6 @@ function ReadOnlyField({ label, value }:{ label: string; value: React.ReactNode;
   );
 }
 
-// Extra block: show each player's chip changes per event (matrix)
 function ChangesMatrix({ history, totalPlayers=256, playersState }:{ history:any[]; totalPlayers?: number; playersState: any[]; }){
   const labels = history.map((ev)=> ev.type==='cup'? `Cup ${ev.cupIndex}`
     : ev.type==='regional'? 'Regional'
@@ -877,16 +815,14 @@ function ChangesMatrix({ history, totalPlayers=256, playersState }:{ history:any
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-// Tiny assertion helpers
+// Tiny assertion helpers + Self-tests
 function assertEq(a: any, b: any, msg: string){ const ok = a===b; return { ok, msg, detail: ok? "" : `${a} !== ${b}` }; }
 function assertTrue(cond: any, msg: string){ const ok = !!cond; return { ok, msg, detail: ok? "" : `Condition false` }; }
 function assertNear(a: number, b: number, eps: number, msg: string){ const ok = Math.abs(a-b) <= eps; return { ok, msg, detail: ok? "" : `${a} !~= ${b} (eps=${eps})` }; }
 
-/* Self-tests (simple test cases) */
 function TestsPanel(){
   const [result, setResult] = useState<any>(null);
 
-  // helpers for band totals & monotonic checks
   const sum = (arr:number[]) => arr.reduce((a,b)=>a+b,0);
   const rangeSum = (arr:number[], s:number, e:number) => arr.slice(s-1, e).reduce((a,b)=>a+b,0);
   const pairsEqual = (arr:number[], s:number, e:number, eps=1e-9) => {
@@ -899,33 +835,27 @@ function TestsPanel(){
 
   const run = () => {
     const out: {ok:boolean; msg:string; detail?:string}[] = [];
-    // Test 1: fixed sizes
     out.push(assertEq(FIXED_SIZES.population, 256, "Population = 256"));
     out.push(assertEq(FIXED_SIZES.cupSlots, 128, "Cup = 128"));
     out.push(assertEq(FIXED_SIZES.reg, 32, "Reg = 32"));
     out.push(assertEq(FIXED_SIZES.ourWorldQuota, 12, "Our region Worlds = 12"));
     out.push(assertEq(FIXED_SIZES.world, 48, "Worlds = 48"));
 
-    // Test 2: state vs constants are different references (avoid direct mutation)
     const params2 = { ...DEFAULT_PARAMS } as any;
     out.push(assertTrue(params2 !== DEFAULT_PARAMS, "params is a copy, not same reference"));
     const sizes2 = { ...FIXED_SIZES } as any;
     out.push(assertTrue(sizes2 !== FIXED_SIZES, "sizes is a copy, not same reference"));
 
-    // Test 3: createPlayers length & init values
     const ps = createPlayers(10, 100);
     out.push(assertEq(ps.length, 10, "createPlayers length = 10"));
     out.push(assertTrue(ps.every(p=>p.chips===100), "createPlayers initial chips = 100"));
 
-    // Test 4: weights sum (128/32/48 designed to be 1.0)
     out.push(assertNear(sum(weightsCup(128)), 1.0, 1e-9, "Cup weights sum = 1"));
     out.push(assertNear(sum(weightsReg(32)), 1.0, 1e-9, "Reg weights sum = 1"));
     out.push(assertNear(sum(weightsWorld(48)), 1.0, 1e-9, "World weights sum = 1"));
-    // New: S15-related helpers should also sum to 1
     out.push(assertNear(sum(weightsTPC(32)), 1.0, 1e-9, "TPC weights sum = 1"));
     out.push(assertNear(sum(weightsReg48(48)), 1.0, 1e-9, "S15 Regional(48) weights sum = 1"));
 
-    // Test 5: tierRun conservation & output lengths
     const testTier = (N:number, giveHalf:boolean, y:number) => {
       const pl = createPlayers(N, 100);
       const idxs = Array.from({length:N}, (_,i)=>i);
@@ -940,22 +870,19 @@ function TestsPanel(){
       const takeY = res.fixedY.filter((v:number)=>v>0).length;
       out.push(assertEq(takeY, eligible, `#receiving fixed y = eligible (${eligible})`));
     };
-    testTier(8, true, 50);   // Cup-like: top half receives y
-    testTier(8, false, 100); // Reg/World-like: all receive y
+    testTier(8, true, 50);
+    testTier(8, false, 100);
 
-    // Test 6: rankBy produces unique ranks 1..N
     const vals = [3,1,2];
-    const r = rankBy(vals).ranks; // 0→1st, 2→2nd, 1→3rd
+    const r = rankBy(vals).ranks;
     out.push(assertEq(r[0], 1, "rankBy: index0 should be 1st"));
     out.push(assertEq(r[2], 2, "rankBy: index2 should be 2nd"));
     out.push(assertEq(r[1], 3, "rankBy: index1 should be 3rd"));
 
-    // Test 7: band totals & pairwise monotonicity are respected for each weight set
     const check = (label:string, w:number[], expect:{[k:string]:number}) => {
       const eps = 1e-9;
       const okNI = nonIncreasing(w, eps);
       out.push(assertTrue(okNI, `${label}: globally non-increasing`));
-      // pairs and sums by bands
       if(expect["3_4"]!=null){
         out.push(assertTrue(pairsEqual(w,3,4,eps), `${label}: pairs equal 3–4`));
         out.push(assertNear(rangeSum(w,3,4), expect["3_4"], 1e-9, `${label}: Σ(3–4)`));
@@ -981,23 +908,18 @@ function TestsPanel(){
       out.push(assertNear(sum(w), 1, 1e-12, `${label}: Σ(all)=1`));
     };
 
-    // Cup (128)
     const wCup = weightsCup(128);
     check("Cup(128)", wCup, { top1:0.15, top2:0.09, "3_4":0.12, "5_8":0.16, "9_16":0.16, "17_32":0.16, "33_64":0.16 });
 
-    // Regionals (32)
     const wReg = weightsReg(32);
     check("Reg(32)", wReg, { top1:0.20, top2:0.12, "3_4":0.16, "5_8":0.20, "9_16":0.32 });
 
-    // Worlds (48)
     const wWorld = weightsWorld(48);
     check("World(48)", wWorld, { top1:0.16, top2:0.10, "3_4":0.14, "5_8":0.20, "9_16":0.24, "17_32":0.16 });
 
-    // S15 Regionals (48)
     const wReg48 = weightsReg48(48);
     check("S15 Reg(48)", wReg48, { top1:0.15, top2:0.09, "3_4":0.14, "5_8":0.20, "9_16":0.25, "17_32":0.17 });
 
-    // TPC (32)
     const wTPC = weightsTPC(32);
     check("TPC(32)", wTPC, { top1:0.18, top2:0.11, "3_4":0.16, "5_8":0.19, "9_16":0.36 });
 
@@ -1022,4 +944,10 @@ function TestsPanel(){
       {!result && <div className="text-slate-400 text-xs">Click “Run tests” to verify band totals, monotonicity, and accounting.</div>}
     </div>
   );
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Default export: keep a single default
+export default function App() {
+  return <EloChipsDemo />;
 }
