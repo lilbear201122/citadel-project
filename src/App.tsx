@@ -242,27 +242,29 @@ function EloChipsDemo() {
 
   const runCup = (cupIndex: number) => {
     const n = sizes.cupSlots;
-    const idxs = choiceIndexes(players.length, n);
-    const w = weightsCup(n);
     const giveYToTopHalf = true;
-    const next = players.map((p) => ({ ...p }));
-    const res = tierRun({ playersIdx: idxs, players: next, z: params.z_cup, y: params.y_cup, weights: w, giveYToTopHalf });
+    setPlayers((prev) => {
+      const idxs = choiceIndexes(prev.length, n);
+      const w = weightsCup(n);
+      const next = prev.map((p) => ({ ...p }));
+      const res = tierRun({ playersIdx: idxs, players: next, z: params.z_cup, y: params.y_cup, weights: w, giveYToTopHalf });
 
-    const rows = idxs.map((pi, j) => ({
-      name: `P${pi+1}`,
-      playerId: pi,
-      rank: res.ranks[j],
-      fee: res.fees[j],
-      y: res.fixedY[j],
-      share: res.sharePool[j],
-      payout: res.payouts[j],
-      delta: res.deltas[j],
-      newChips: next[pi].chips,
-    })).sort((a,b)=>a.rank-b.rank);
+      const rows = idxs.map((pi, j) => ({
+        name: `P${pi+1}`,
+        playerId: pi,
+        rank: res.ranks[j],
+        fee: res.fees[j],
+        y: res.fixedY[j],
+        share: res.sharePool[j],
+        payout: res.payouts[j],
+        delta: res.deltas[j],
+        newChips: next[pi].chips,
+      })).sort((a,b)=>a.rank-b.rank);
 
-    setPlayers(next);
-    setStage(`cup${cupIndex}`);
-    setHistory((h) => [...h, { type: "cup", cupIndex, idxs, rows, ...res }]);
+      setStage(`cup${cupIndex}`);
+      setHistory((h) => [...h, { type: "cup", cupIndex, idxs, rows, ...res }]);
+      return next;
+    });
   };
 
   const runCupsPhase = async () => {
@@ -514,7 +516,7 @@ function EloChipsDemo() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25 }}
           >
-            Elo Chip-Based Scoring | Demo (Version 1)
+            Elo Chip-Based Scoring | Demo
           </motion.h1>
           <motion.p
             className="text-slate-300 mt-2"
@@ -522,8 +524,7 @@ function EloChipsDemo() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.25 }}
           >
-            Progression: 256 → 128 → 32 → 12 → 48. Fee = current chips / z.
-            Cup pays fixed y to the top half only; Regionals/Worlds pay fixed y to all.
+            This demo simulates the Elo Chip-Based Scoring system and lets you see how player rankings shift across events.
           </motion.p>
         </header>
 
@@ -689,28 +690,23 @@ function PoolsPanel({ history, params }:{ history: any[]; params: any; }) {
     last?.type === "s15_regional" ? "S15 Regionals (48)" :
     "Not started";
   const pool = last?.pool ?? 0;
-  const pct = Math.min(100, (Math.sqrt(pool) / 10) * 100);
+  const participants = Array.isArray(last?.rows) ? last.rows.length : 0;
+  const fixedY =
+    last?.type === "cup" ? params.y_cup :
+    last?.type === "regional" ? params.y_reg :
+    last?.type === "worlds" ? params.y_world :
+    last?.type === "tpc" ? params.y_s15_tpc :
+    last?.type === "s15_cup" ? params.y_s15_cup :
+    last?.type === "s15_regional" ? params.y_s15_reg :
+    0;
   return (
     <div className="bg-slate-900/60 rounded-2xl p-4 border border-slate-800">
       <h3 className="font-semibold mb-3">Latest Prize Pool & Fixed Rewards</h3>
       <div className="text-sm mb-2">Stage: <span className="font-semibold">{label}</span></div>
-      <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden mb-2">
-        <motion.div className="h-full bg-indigo-500" initial={{width:0}} animate={{ width: `${pct}%` }} transition={{duration:0.4}} />
-      </div>
       <div className="text-xs text-slate-300 space-y-1">
-        <div>Pool (from fees): <span className="font-mono">{format2(pool)}</span></div>
-        <div>Cup fixed y: <span className="font-mono">{params.y_cup}</span> (top half only)</div>
-        <div>Reg fixed y: <span className="font-mono">{params.y_reg}</span> (all players)</div>
-        <div>World fixed y: <span className="font-mono">{params.y_world}</span> (all players)</div>
-        <div>TPC fixed y: <span className="font-mono">{params.y_s15_tpc}</span> (all players)</div>
-        <div className="pt-1 border-t border-slate-800" />
-        <div className="font-semibold text-slate-200">S15 Settings</div>
-        <div>S15 Cup: y=<span className="font-mono">{params.y_s15_cup}</span> (top {params.s15_cup_y_top_k} only), z=<span className="font-mono">{params.z_s15_cup}</span></div>
-        <div>S15 TPC: y=<span className="font-mono">{params.y_s15_tpc}</span> (all players), z=<span className="font-mono">{params.z_s15_tpc}</span></div>
-        <div>S15 Reg: y=<span className="font-mono">{params.y_s15_reg}</span> (all players), z=<span className="font-mono">{params.z_s15_reg}</span></div>
-        <div className="opacity-70">
-          Fee = current chips / z; z: Cup {params.z_cup}, Reg {params.z_reg}, World {params.z_world}, TPC {params.z_s15_tpc}
-        </div>
+        <div>Pool: <span className="font-mono">{format2(pool)}</span></div>
+        <div>Fixed y: <span className="font-mono">{fixedY}</span></div>
+        <div>Participants: <span className="font-mono">{participants}</span></div>
       </div>
     </div>
   );
