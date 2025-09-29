@@ -716,164 +716,84 @@ function PoolsPanel({ history, params }:{ history: any[]; params: any; }) {
   );
 }
 
-function NotesPanel({ params, sizes, tpcPros }:{ params: any; sizes: any; tpcPros: number[]; }) {
+function NotesPanel({ params, sizes, tpcPros }:{ params: any; sizes: any; tpcPros?: number[]; }) {
   return (
     <div className="bg-slate-900/60 rounded-2xl p-4 border border-slate-800">
       <h3 className="font-semibold mb-3">Rules Overview</h3>
 
       {/* Core mechanics */}
-      <h4 className="font-semibold text-sm mt-1 mb-2">Core mechanics</h4>
+      <div className="text-sm mb-2 font-semibold">Core mechanics</div>
       <ul className="text-sm space-y-2 list-disc pl-5">
-        <li>
-          <span className="underline">Performance model</span>:
-          each event = skill + noise, with noise ≈ normal (sum of three U[-0.5, 0.5]).
+        <li>Performance = skill + noise (noise ≈ normal via sum of three uniform draws).</li>
+        <li>Entry fee: each entrant pays current chips ÷ z; all fees form the prize pool.</li>
+        <li>Fixed reward y:
+          <ul className="list-disc pl-5 mt-1 space-y-1">
+            <li>Cup: y paid only to the top half (S13–S14: top 64 of {sizes.cupSlots}; S15: top 32).</li>
+            <li>Regionals/Worlds: y paid to all participants.</li>
+          </ul>
         </li>
-        <li>
-          <span className="underline">Entry fee → pool</span>:
-          fee per player = current chips / z. All fees go into that event’s prize pool.
-        </li>
-        <li>
-          <span className="underline">Fixed reward (y)</span>:
-          Cup pays y only to the top half (S15 Cups: top 32 only);
-          Regionals/Worlds pay y to all participants.
-        </li>
-        <li>
-          <span className="underline">Pool distribution</span>:
-          the pool is split by rank weights that sum to 1.0 for the field size.
-        </li>
-        <li>
-          <span className="underline">Net change</span>:
-          for each player, Δ = fixed y + pool share − fee; chips are updated by Δ.
-        </li>
-        <li>
-          <span className="underline">Decay</span>:
-          “Decay” reduces everyone’s chips by a percentage to control long-run inflation.
-        </li>
+        <li>Pool distribution: split by a rank-based weight schedule that sums to 1.0 for the field size.</li>
+        <li>Net change per player: Δ = fixed y + pool share − fee; chips are updated by Δ.</li>
+        <li>Decay: apply a global % reduction to all chips to control long-run inflation.</li>
       </ul>
 
-      {/* S13~S14 */}
-      <h4 className="font-semibold text-sm mt-4 mb-2">S13 ~ S14 Tournament flow (simulation)</h4>
+      {/* S13–S14 flow */}
+      <div className="text-sm mt-4 mb-2 font-semibold">S13–S14 simulation flow</div>
       <ul className="text-sm space-y-2 list-disc pl-5">
-        <li>
-          <span className="underline">Population</span>: start with {sizes.population} players.
+        <li>Start with {sizes.population} players.</li>
+        <li>Cups ({sizes.cupSlots}): run 3 Cups, each drawing {sizes.cupSlots} at random from the full population.
+          <ul className="list-disc pl-5 mt-1 space-y-1">
+            <li>Pay y to the top 64 only; split the pool by the Cup weight schedule.</li>
+          </ul>
         </li>
-        <li>
-          <span className="underline">Cups</span> ({sizes.cupSlots} participants × 3):
-          each Cup draws {sizes.cupSlots} at random from the full population.
-          Fixed y only to the top 64; pool split by the Cup weight schedule.
-          Current UI values: z_cup=<code className="font-mono">{params.z_cup}</code>, y_cup=<code className="font-mono">{params.y_cup}</code>.
-        </li>
-        <li>
-          <span className="underline">Regionals</span> ({sizes.reg} participants):
-          after 3 Cups, top {sizes.reg} by chips advance. Everyone gets y;
-          pool split by the Regionals weight schedule.
-          Current UI values: z_reg=<code className="font-mono">{params.z_reg}</code>, y_reg=<code className="font-mono">{params.y_reg}</code>.
-        </li>
-        <li>
-          <span className="underline">Worlds</span> ({sizes.world} participants):
-          our region sends {sizes.ourWorldQuota} (by regional weight points), the rest are external.
-          Everyone gets y; pool split by the Worlds weight schedule.
-          Current UI values: z_world=<code className="font-mono">{params.z_world}</code>, y_world=<code className="font-mono">{params.y_world}</code>.
-        </li>
+        <li>Regionals ({sizes.reg}): top {sizes.reg} by chips after the three Cups. Pay y to all; split by Regionals weights.</li>
+        <li>Worlds ({sizes.world}): take our top {sizes.ourWorldQuota} (by Regional weight points), then add {sizes.world - sizes.ourWorldQuota} external entrants (median skill/chips ± noise). Pay y to all; split by Worlds weights.</li>
       </ul>
 
-      {/* S15 with TPC */}
-      <h4 className="font-semibold text-sm mt-4 mb-2">S15 Tournament flow (TPC format)</h4>
+      {/* S15 (TPC) flow */}
+      <div className="text-sm mt-4 mb-2 font-semibold">S15 simulation flow (TPC format)</div>
       <ul className="text-sm space-y-2 list-disc pl-5">
-        <li>
-          <span className="underline">TPC (32 pros)</span>:
-          the 32 players from the most recent 32-player Regionals form the Pro group and play 3× TPC rounds.
-          Pros do not play Cups. Everyone gets y; pool uses the TPC weight schedule.
-          Current UI values: z_tpc=<code className="font-mono">{params.z_tpc}</code>, y_tpc=<code className="font-mono">{params.y_tpc}</code>.
-        </li>
-        <li>
-          <span className="underline">S15 Cups</span> ({sizes.cupSlots} participants × 2):
-          drawn from the remaining {sizes.population - 32} non-pro players.
-          Fixed y is paid to the <span className="underline">top 32 only</span>;
-          pool split by the Cup weights. Current UI values: z_cup=<code className="font-mono">{params.z_cup}</code>, y_cup=<code className="font-mono">{params.y_cup}</code>.
-        </li>
-        <li>
-          <span className="underline">S15 Regionals (48)</span>:
-          32 pros + top 16 non-pros by chips after the two S15 Cups.
-          Everyone gets y; pool split by the 48-player Regional weight schedule.
-          Uses Regionals parameters: z_reg=<code className="font-mono">{params.z_reg}</code>, y_reg=<code className="font-mono">{params.y_reg}</code>.
-        </li>
-        <li>
-          <span className="underline">Worlds (48)</span>:
-          top 12 by chips; the remaining 36 are external entrants based on our qualifiers’ median skill & chips with noise.
-          Everyone gets y; pool split by Worlds weights.
-        </li>
+        <li>TPC (32): the 32 players from the most recent 32-player Regionals are “pros” and play TPC. Pros do not play Cups. Pay y to all; split by TPC weights.</li>
+        <li>Cups (128): run 2 Cups, drawing from the remaining 224 non-pros. Pay y to the top 32 only; split by Cup weights.</li>
+        <li>Regionals (48): 32 pros + top 16 non-pros by chips after the two Cups. Pay y to all; split by 48-player Regionals weights.</li>
+        <li>Worlds (48): same as S13–S14 — our top 12 + 36 externals. Pay y to all; split by Worlds weights.</li>
       </ul>
 
-      {/* Weight schedules */}
-      <h4 className="font-semibold text-sm mt-4 mb-2">Weight schedules (principles)</h4>
+      {/* Weight schedule principles */}
+      <div className="text-sm mt-4 mb-2 font-semibold">Weight schedules (principles)</div>
       <ul className="text-sm space-y-2 list-disc pl-5">
-        <li>
-          <span className="underline">Halving bands</span>: ranks are grouped into bands whose sizes halve as ranks worsen
-          (e.g., 1–2, 3–4, 5–8, 9–16, 17–32, 33–64), creating clear prestige gaps.
-        </li>
-        <li>
-          <span className="underline">Pairwise-monotonic within each band</span>:
-          weights within a band are assigned in 2-rank pairs and ramp linearly toward better ranks.
-        </li>
-        <li>
-          <span className="underline">Globally non-increasing</span>:
-          a better rank never receives less than any worse rank (no inversions).
-        </li>
-        <li>
-          <span className="underline">Band totals preserved</span>:
-          each band keeps its share of the pool while the pairwise ramp removes flat zones.
-        </li>
-        <li>
-          <span className="underline">Sums to 1.0</span> for each field size (128/32/48). Top bands are heavier → more elite-skewed payouts.
-        </li>
+        <li>Halving bands: ranks grouped as 1–2, 3–4, 5–8, 9–16, 17–32, 33–64, etc.</li>
+        <li>Pairwise-monotonic within bands: two-rank pairs ramp linearly toward better ranks.</li>
+        <li>Globally non-increasing: no better rank receives less than a worse rank.</li>
+        <li>Band totals preserved: each band keeps its fixed share; ramps remove large flats.</li>
+        <li>Sum to 1.0 for each field size (128/32/48). Heavier top bands → more elite-skewed payouts.</li>
       </ul>
 
       {/* Parameters */}
-      <h4 className="font-semibold text-sm mt-4 mb-2">Parameters & how to set them</h4>
+      <div className="text-sm mt-4 mb-2 font-semibold">Parameters</div>
       <ul className="text-sm space-y-2 list-disc pl-5">
-        <li>
-          <span className="underline">Initial chips x</span>:
-          sets starting bankroll and early fee size. Higher x → larger early pools. Current UI: x0=<code className="font-mono">{params.x0}</code>.
+        <li>Initial chips x: default {params.x0 ?? 100} (sets early bankroll and typical fee size).</li>
+        <li>Fee divisors z (higher tier → lower z → larger fees):
+          <ul className="list-disc pl-5 mt-1 space-y-1">
+            <li>Typical defaults: z_cup={params.z_cup}, z_reg={params.z_reg}, z_world={params.z_world}.</li>
+            <li><span className="italic">S15 note:</span> set z_cup = 10 because Cup is tier-2.</li>
+          </ul>
         </li>
-        <li>
-          <span className="underline">Fees vs. fixed rewards</span>:
-          fee = chips / z. Higher z → smaller fee (slower redistribution); lower z → larger fee (more volatility).
-          Suggested baseline: z_cup=8, z_reg=4, z_world=3.
-          <span className="ml-1">S15 recommendation: z_cup=10 (Cup is tier-2).</span>
-          <div className="text-xs text-slate-400 mt-1">
-            Current UI values — z_cup=<code className="font-mono">{params.z_cup}</code>,
-            z_reg=<code className="font-mono">{params.z_reg}</code>,
-            z_world=<code className="font-mono">{params.z_world}</code>,
-            z_tpc=<code className="font-mono">{params.z_tpc}</code>.
-          </div>
-        </li>
-        <li>
-          <span className="underline">Fixed rewards y</span>:
-          baseline participation value, independent of pool share.
-          Suggested baseline: y_cup=50, y_reg=100, y_world=400.
-          <span className="ml-1">S15 recommendation: y_cup=20, y_tpc=75, y_reg=90.</span>
-          <div className="text-xs text-slate-400 mt-1">
-            Current UI values — y_cup=<code className="font-mono">{params.y_cup}</code>,
-            y_reg=<code className="font-mono">{params.y_reg}</code>,
-            y_world=<code className="font-mono">{params.y_world}</code>,
-            y_tpc=<code className="font-mono">{params.y_tpc}</code>.
-          </div>
+        <li>Fixed rewards y:
+          <ul className="list-disc pl-5 mt-1 space-y-1">
+            <li>Typical: y_cup={params.y_cup}, y_reg={params.y_reg}, y_world={params.y_world}.</li>
+            <li><span className="italic">S15 targets:</span> y_cup = 20, y_tpc = 75, y_reg = 90.</li>
+          </ul>
         </li>
       </ul>
 
-      <p className="text-[11px] text-slate-400 mt-3">
-        These flows are slightly simplified vs. official advancement rules, but yield similar chip distributions in practice.
-      </p>
-
-      {/* Heads-up about S15 Cup payout rule */}
-      <p className="text-[11px] text-amber-300/90 mt-1">
-        Heads-up: the description above says “S15 Cup fixed y → top 32 only”. If you want the simulation to enforce that
-        (rather than top half), let me know and I’ll switch the payout rule in the S15 Cups code path.
+      <p className="text-xs text-slate-400 mt-3">
+        The flows are simplified vs. official advancement rules, but produce similar chip distributions.
       </p>
     </div>
   );
 }
+
 
 
 function Timeline({ history }:{ history: any[]; }) {
