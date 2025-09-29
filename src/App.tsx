@@ -732,9 +732,6 @@ function NotesPanel({ params, sizes, tpcPros }:{ params: any; sizes: any; tpcPro
             <li>Regionals/Worlds: y paid to all participants.</li>
           </ul>
         </li>
-        <li>Pool distribution: split by a rank-based weight schedule that sums to 1.0 for the field size.</li>
-        <li>Net change per player: Δ = fixed y + pool share − fee; chips are updated by Δ.</li>
-        <li>Decay: apply a global % reduction to all chips to control long-run inflation.</li>
       </ul>
 
       {/* S13–S14 flow */}
@@ -767,24 +764,6 @@ function NotesPanel({ params, sizes, tpcPros }:{ params: any; sizes: any; tpcPro
         <li>Globally non-increasing: no better rank receives less than a worse rank.</li>
         <li>Band totals preserved: each band keeps its fixed share; ramps remove large flats.</li>
         <li>Sum to 1.0 for each field size (128/32/48). Heavier top bands → more elite-skewed payouts.</li>
-      </ul>
-
-      {/* Parameters */}
-      <div className="text-sm mt-4 mb-2 font-semibold">Parameters</div>
-      <ul className="text-sm space-y-2 list-disc pl-5">
-        <li>Initial chips x: default {params.x0 ?? 100} (sets early bankroll and typical fee size).</li>
-        <li>Fee divisors z (higher tier → lower z → larger fees):
-          <ul className="list-disc pl-5 mt-1 space-y-1">
-            <li>Typical defaults: z_cup={params.z_cup}, z_reg={params.z_reg}, z_world={params.z_world}.</li>
-            <li><span className="italic">S15 note:</span> set z_cup = 10 because Cup is tier-2.</li>
-          </ul>
-        </li>
-        <li>Fixed rewards y:
-          <ul className="list-disc pl-5 mt-1 space-y-1">
-            <li>Typical: y_cup={params.y_cup}, y_reg={params.y_reg}, y_world={params.y_world}.</li>
-            <li><span className="italic">S15 targets:</span> y_cup = 20, y_tpc = 75, y_reg = 90.</li>
-          </ul>
-        </li>
       </ul>
 
       <p className="text-xs text-slate-400 mt-3">
