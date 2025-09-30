@@ -889,8 +889,17 @@ function ChangesMatrix({ history, totalPlayers=256, playersState }:{ history:any
         return k>=0 ? ev.deltas[k] : null;
       }
     });
+    const ranks = history.map((ev)=>{
+      if(ev.type==='worlds'){
+        const k = ev.allIdxs ? ev.allIdxs.findIndex((gid:number)=>gid===pid) : -1;
+        return k>=0 ? ev.ranks?.[k] ?? null : null;
+      } else {
+        const k = ev.idxs ? ev.idxs.findIndex((i:number)=>i===pid) : -1;
+        return k>=0 ? ev.ranks?.[k] ?? null : null;
+      }
+    });
     const finalChips = playersState?.[pid]?.chips ?? null;
-    return { pid, deltas, finalChips };
+    return { pid, deltas, ranks, finalChips };
   }).sort((a,b)=>(b.finalChips??-Infinity)-(a.finalChips??-Infinity));
   return (
     <div className="mt-8 bg-slate-900/60 rounded-2xl p-4 border border-slate-800 overflow-x-auto">
@@ -899,7 +908,7 @@ function ChangesMatrix({ history, totalPlayers=256, playersState }:{ history:any
         <thead className="text-slate-400">
           <tr>
             <th className="text-left p-1">Player</th>
-            {labels.map((lb,i)=>(<th key={i} className="text-right p-1 w-24">{lb}</th>))}
+            {labels.map((lb,i)=>(<th key={i} className="text-right p-1 w-28">{lb}</th>))}
             <th className="text-right p-1 w-28">Final Chips</th>
           </tr>
         </thead>
@@ -909,7 +918,14 @@ function ChangesMatrix({ history, totalPlayers=256, playersState }:{ history:any
               <td className="p-1">P{r.pid+1}</td>
               {r.deltas.map((d: number|null, j:number)=> (
                 <td key={j} className={`p-1 text-right ${d==null?"text-slate-600":""}`}>
-                  {d==null? "—" : <span className={d>=0?"text-emerald-400":"text-rose-400"}>{format2(d)}</span>}
+                  {d==null? "—" : (
+                    <span className="inline-flex items-center justify-end gap-1 w-full">
+                      <span className={d>=0?"text-emerald-400":"text-rose-400"}>{format2(d)}</span>
+                      {r.ranks?.[j]!=null && (
+                        <span className="text-slate-400 opacity-80">#{r.ranks[j]}</span>
+                      )}
+                    </span>
+                  )}
                 </td>
               ))}
               <td className="p-1 text-right font-mono">{r.finalChips==null?"—":format2(r.finalChips)}</td>
@@ -918,7 +934,7 @@ function ChangesMatrix({ history, totalPlayers=256, playersState }:{ history:any
         </tbody>
       </table>
       <div className="text-[10px] text-slate-400 mt-1">
-        “—” means did not participate; values are net change Δ for that event.
+        “—” means did not participate; values are net change Δ for that event. Ranks shown as #k.
         Rows are sorted by Final Chips (descending).
       </div>
     </div>
